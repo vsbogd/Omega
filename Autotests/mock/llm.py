@@ -7,6 +7,7 @@ except ImportError:
     from rpc import Rpc, IPCClient, IPCServer
 from contextlib import contextmanager
 import threading
+from providers import *
 
 LLM_MOCK_PORT = 9765
 
@@ -23,7 +24,7 @@ class LlmMockAgent:
     def stop(self, timeout=None):
         self._rpc.stop(timeout)
 
-    def chat(self, content):
+    def chat(self, request: LLMRequest) -> LLMResponse:
         user = content.rsplit(":-:-:-:", 1)
         if len(user) < 2:
             return ""

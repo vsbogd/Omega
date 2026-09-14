@@ -59,6 +59,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     torch==2.12.1 \
  && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt
 
+ENV HF_HUB_DISABLE_XET=1
 # Pre-download the sentence-transformers model so runtime does not need network access.
 RUN mkdir -p "${HF_HOME}" "${SENTENCE_TRANSFORMERS_HOME}" \
  && python3 - <<PY

@@ -38,8 +38,7 @@ class MockProviderImpl(llm.AbstractAIProvider):
         return self._controller_ip is not None
 
     def chat(self, request: providers.LLMRequest) -> providers.LLMResponse:
-        # FIXME: adapt Mock to the new API
-        return self._llm_mock().chat(content)
+        return self._llm_mock().chat(request)
 
     def stop(self) -> None:
         if self._mock is not None:
