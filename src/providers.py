@@ -1,4 +1,5 @@
 import config
+import json
 import logging
 from typing import List
 
@@ -260,17 +261,20 @@ def _validate_response(request: LLMRequest, response: LLMResponse) -> LLMRespons
             if not parameter.name in call.arguments:
                 call.set_error(f"Call tool parameter is not set: tool: {call.name!r}, parameter: {parameter.name!r}")
                 break
+            if not isinstance(call.arguments[parameter.name], str):
+                call.set_error(f"Call tool parameter is not a string: tool: {call.name!r}, parameter: {parameter.name!r}")
+                break
     return response
 
 def getTools(skills):
     """Form a list of tools for LLM from the list of skills"""
-    tools = []
+    tools = {}
     for name, desc, params in skills:
         tool = LLMTool().with_name(name).with_description(desc)
         for param in params:
             tool.add_parameter(LLMToolParameter().with_name(param))
-        tools.append(tool)
-    return tools
+        tools[name] = tool
+    return list(tools.values())
 
 def llmRequestMessage(role, content):
     return LLMMessage().with_role(role).with_content(content)
@@ -285,8 +289,35 @@ def llmToolCallMessage(role, calls: [LLMToolCall], content):
                                 .with_calls(calls)
                                 .with_content(content))
 
+MISSING_TOOL_RESULT = "NO_RESULT: the tool call returned no value"
+
+def _pair_tool_results(messages):
+    paired = []
+    i = 0
+    while i < len(messages):
+        message = messages[i]
+        i += 1
+        if isinstance(message, LLMToolCallMessage) and not message.calls:
+            continue
+        paired.append(message)
+        if not isinstance(message, LLMToolCallMessage):
+            continue
+        results = {}
+        while i < len(messages) and isinstance(messages[i], LLMToolCallResponseMessage):
+            results.setdefault(str(messages[i].callid), []).append(messages[i].content)
+            i += 1
+        for call in message.calls:
+            contents = results.pop(str(call.id), None)
+            if not contents:
+                logger.warning(f"Tool call {call.id!r} of {call.name!r} returned no result")
+            content = "\n".join(contents) if contents else MISSING_TOOL_RESULT
+            paired.append(llmToolCallResponseMessage("tool", call.id, content))
+        if results:
+            logger.warning(f"Dropping results of unknown tool calls: {sorted(results)!r}")
+    return paired
+
 def llmRequest(prompt, episodes, max_tokens, reasoning_mode, tools):
-    return (LLMRequest().with_messages([prompt] + episodes)
+    return (LLMRequest().with_messages(_pair_tool_results([prompt] + episodes))
                        .with_max_tokens(max_tokens)
                        .with_reasoning_mode(reasoning_mode)
                        .with_tools(tools))
@@ -330,12 +361,14 @@ def llmToolCallToSExpr(call: LLMToolCall):
                 sexpr = sexpr + f"\"{arg}\" "
     else:
         for arg in call.arguments.values():
+            if not isinstance(arg, str):
+                arg = json.dumps(arg, ensure_ascii=False)
             arg = arg.translate(ESCAPE)
             sexpr = sexpr + f"\"{arg}\" "
 
     sexpr = sexpr[:-1] + ")"
     if call.is_error():
-        sexpr = f"(Error {sexpr} \"{call.error}\")"
+        sexpr = f"(Error {sexpr} \"{str(call.error).translate(ESCAPE)}\")"
     return f"({call.id} {sexpr})"
 
 def llmResponseToSExpr(response: LLMResponse) -> str:
